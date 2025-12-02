@@ -3,7 +3,6 @@
 // - Tesseract
 // - Magick.NET-Q8-AnyCPU
 // - System.Drawing.Common (TODO: System.Drawing platform bağımlılığı için alternatif değerlendirilmesi gerekebilir.)
-using System.Drawing;
 using System.Text;
 using ImageMagick;
 using Microsoft.Extensions.Logging;
@@ -76,8 +75,8 @@ public class TesseractOcrService : IOcrService
                 cancellationToken.ThrowIfCancellationRequested();
 
                 using var pageImage = images[pageIndex];
-                using var bitmap = pageImage.ToBitmap();
-                using var pix = PixConverter.ToPix(bitmap);
+                var imageBytes = pageImage.ToByteArray(MagickFormat.Png);
+                using var pix = Pix.LoadFromMemory(imageBytes);
                 using var page = engine.Process(pix, PageSegMode.Auto);
 
                 var text = page.GetText();
