@@ -1,21 +1,13 @@
 // PATH: RDA.Infrastructure/Documents/Ocr/TesseractOcrService.cs
-using System.Drawing;
-using System.Drawing.Imaging;
+// NuGet: Magick.NET-Q8-AnyCPU, Tesseract
 using System.Text;
+using ImageMagick;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PdfiumViewer;
 using RDA.Application.Documents.Services;
 using Tesseract;
 
 namespace RDA.Infrastructure.Documents.Ocr;
-
-public class TesseractOptions
-{
-    public string TessDataPath { get; set; } = string.Empty;
-
-    public string Language { get; set; } = string.Empty;
-}
 
 public class TesseractOcrService : IOcrService
 {
@@ -54,9 +46,14 @@ public class TesseractOcrService : IOcrService
 
         try
         {
-            using var document = PdfDocument.Load(memoryStream);
-            var pageCount = document.PageCount;
-            if (pageCount == 0)
+            var readSettings = new MagickReadSettings
+            {
+                Density = new Density(RenderDpi, RenderDpi)
+            };
+
+            using var images = new MagickImageCollection();
+            images.Read(memoryStream, readSettings);
+            if (images.Count == 0)
             {
                 throw new InvalidOperationException("No pages found in PDF stream for OCR processing.");
             }
@@ -64,12 +61,19 @@ public class TesseractOcrService : IOcrService
             using var engine = new TesseractEngine(_options.TessDataPath, _options.Language, EngineMode.Default);
             var stringBuilder = new StringBuilder();
 
-            for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+            for (var pageIndex = 0; pageIndex < images.Count; pageIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                using var bitmap = RenderPageToGrayscale(document, pageIndex);
-                using var pix = PixConverter.ToPix(bitmap);
+                using var pageImage = (MagickImage)images[pageIndex].Clone();
+                pageImage.ColorType = ColorType.Grayscale;
+                pageImage.Format = MagickFormat.Png;
+
+                await using var pageStream = new MemoryStream();
+                await pageImage.WriteAsync(pageStream, cancellationToken);
+                var pageBytes = pageStream.ToArray();
+
+                using var pix = Pix.LoadFromMemory(pageBytes);
                 using var page = engine.Process(pix, PageSegMode.Auto);
 
                 var text = page.GetText();
@@ -81,10 +85,15 @@ public class TesseractOcrService : IOcrService
 
             return stringBuilder.ToString();
         }
-        catch (PdfDocumentException ex)
+        catch (OperationCanceledException)
         {
-            _logger.LogError(ex, "Failed to load PDF document for OCR processing.");
-            throw new InvalidOperationException("PDF loading failed. Ensure the PDF is valid and supported.", ex);
+            _logger.LogWarning("OCR extraction was canceled.");
+            throw;
+        }
+        catch (MagickException ex)
+        {
+            _logger.LogError(ex, "Failed to render PDF to images for OCR.");
+            throw new InvalidOperationException("PDF rendering failed. Ensure the PDF is valid and supported.", ex);
         }
         catch (TesseractException ex)
         {
@@ -113,46 +122,6 @@ public class TesseractOcrService : IOcrService
         if (!Directory.Exists(_options.TessDataPath))
         {
             throw new DirectoryNotFoundException($"Tessdata directory not found at '{_options.TessDataPath}'.");
-        }
-    }
-
-    private static Bitmap RenderPageToGrayscale(PdfDocument document, int pageIndex)
-    {
-        var source = document.Render(pageIndex, RenderDpi, RenderDpi, true);
-        try
-        {
-            var grayscale = new Bitmap(source.Width, source.Height, PixelFormat.Format24bppRgb);
-            grayscale.SetResolution(RenderDpi, RenderDpi);
-
-            using var graphics = Graphics.FromImage(grayscale);
-            var colorMatrix = new ColorMatrix(
-                new[]
-                {
-                    new[] {0.299f, 0.299f, 0.299f, 0f, 0f},
-                    new[] {0.587f, 0.587f, 0.587f, 0f, 0f},
-                    new[] {0.114f, 0.114f, 0.114f, 0f, 0f},
-                    new[] {0f, 0f, 0f, 1f, 0f},
-                    new[] {0f, 0f, 0f, 0f, 1f}
-                });
-
-            using var attributes = new ImageAttributes();
-            attributes.SetColorMatrix(colorMatrix);
-
-            graphics.DrawImage(
-                source,
-                new Rectangle(0, 0, source.Width, source.Height),
-                0,
-                0,
-                source.Width,
-                source.Height,
-                GraphicsUnit.Pixel,
-                attributes);
-
-            return grayscale;
-        }
-        finally
-        {
-            source.Dispose();
         }
     }
 }
