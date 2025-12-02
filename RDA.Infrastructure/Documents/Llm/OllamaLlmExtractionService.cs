@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RDA.Application.Documents.Services;
@@ -71,30 +72,22 @@ public class OllamaLlmExtractionService : ILlmExtractionService
                     };
                 }
 
-                try
+                if (TryDeserializeExtraction(messageContent, out var extraction, out var parseError))
                 {
-                    var extraction = JsonSerializer.Deserialize<DocumentExtractionResult>(messageContent, _serializerOptions);
-                    if (extraction == null)
-                    {
-                        throw new JsonException("Deserialized extraction result is null.");
-                    }
-
                     return extraction;
                 }
-                catch (JsonException jsonEx)
-                {
-                    _logger.LogError(jsonEx, "LLM JSON parse error on attempt {Attempt}.", attempt);
-                    if (attempt >= MaxRetries)
-                    {
-                        return new DocumentExtractionResult
-                        {
-                            Success = false,
-                            ErrorMessage = "LLM JSON parse error"
-                        };
-                    }
 
-                    await BackoffAsync(attempt, cancellationToken);
+                _logger.LogError("LLM JSON parse error on attempt {Attempt}: {Error}.", attempt, parseError);
+                if (attempt >= MaxRetries)
+                {
+                    return new DocumentExtractionResult
+                    {
+                        Success = false,
+                        ErrorMessage = "LLM JSON parse error"
+                    };
                 }
+
+                await BackoffAsync(attempt, cancellationToken);
             }
             catch (HttpRequestException httpEx) when (IsTransient(httpEx))
             {
@@ -153,6 +146,79 @@ public class OllamaLlmExtractionService : ILlmExtractionService
     {
         var delaySeconds = Math.Pow(2, attempt - 1);
         await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+    }
+
+    private bool TryDeserializeExtraction(string llmContent, out DocumentExtractionResult? extraction, out string? parseError)
+    {
+        parseError = null;
+
+        foreach (var candidate in GetJsonCandidates(llmContent))
+        {
+            try
+            {
+                var result = JsonSerializer.Deserialize<DocumentExtractionResult>(candidate, _serializerOptions);
+                if (result != null)
+                {
+                    result.RawText ??= llmContent;
+                    extraction = result;
+                    return true;
+                }
+            }
+            catch (JsonException jsonEx)
+            {
+                parseError = jsonEx.Message;
+            }
+        }
+
+        parseError ??= "No JSON content found in LLM response.";
+        extraction = null;
+        return false;
+    }
+
+    private static IEnumerable<string> GetJsonCandidates(string llmContent)
+    {
+        var trimmed = llmContent.Trim();
+        if (!string.IsNullOrEmpty(trimmed))
+        {
+            yield return trimmed;
+        }
+
+        var fenced = ExtractFromCodeFence(trimmed);
+        if (!string.IsNullOrEmpty(fenced) && !string.Equals(fenced, trimmed, StringComparison.Ordinal))
+        {
+            yield return fenced;
+        }
+
+        var bracketed = ExtractFromBraces(trimmed);
+        if (!string.IsNullOrEmpty(bracketed) && !string.Equals(bracketed, trimmed, StringComparison.Ordinal))
+        {
+            yield return bracketed;
+        }
+    }
+
+    private static string? ExtractFromCodeFence(string content)
+    {
+        var fenceMatch = Regex.Match(content, "```(json)?\\s*([\\s\\S]*?)```", RegexOptions.IgnoreCase);
+        if (!fenceMatch.Success)
+        {
+            return null;
+        }
+
+        var inner = fenceMatch.Groups.Count >= 3 ? fenceMatch.Groups[2].Value : string.Empty;
+        return inner.Trim();
+    }
+
+    private static string? ExtractFromBraces(string content)
+    {
+        var startIndex = content.IndexOf('{');
+        var endIndex = content.LastIndexOf('}');
+
+        if (startIndex < 0 || endIndex <= startIndex)
+        {
+            return null;
+        }
+
+        return content[startIndex..(endIndex + 1)];
     }
 
     private class OllamaChatRequest
