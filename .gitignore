@@ -52,3 +52,8 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+/.vs/ProjectEvaluation/rda-dotnet.strings.v10.bin
+/.vs/ProjectEvaluation/rda-dotnet.projects.v10.bin
+/.vs/ProjectEvaluation/rda-dotnet.metadata.v10.bin
+/.vs/rda-dotnet.slnx/FileContentIndex/15dc273b-3d3a-46d7-8067-e68953a87733.vsidx
+/.vs/rda-dotnet.slnx/v18/.suo

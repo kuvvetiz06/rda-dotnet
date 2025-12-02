@@ -20,13 +20,14 @@ public class DocumentsController : ControllerBase
     }
 
     [HttpPost("extract-fields")]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(DocumentExtractionResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(DocumentExtractionResponseDto), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(DocumentExtractionResponseDto), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(DocumentExtractionResponseDto), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ExtractFields([FromForm] IFormFile file, [FromForm] string prompt, CancellationToken cancellationToken)
+    public async Task<IActionResult> ExtractFields([FromForm] ExtractFieldsRequest request, CancellationToken cancellationToken)
     {
-        if (file == null || file.Length == 0)
+        if (request.File == null || request.File.Length == 0)
         {
             return BadRequest(new DocumentExtractionResponseDto
             {
@@ -35,7 +36,7 @@ public class DocumentsController : ControllerBase
             });
         }
 
-        if (string.IsNullOrWhiteSpace(prompt))
+        if (string.IsNullOrWhiteSpace(request.Prompt))
         {
             return BadRequest(new DocumentExtractionResponseDto
             {
@@ -45,10 +46,10 @@ public class DocumentsController : ControllerBase
         }
 
         await using var memoryStream = new MemoryStream();
-        await file.CopyToAsync(memoryStream, cancellationToken);
+        await request.File.CopyToAsync(memoryStream, cancellationToken);
         memoryStream.Position = 0;
 
-        var command = new ExtractFieldsFromPdfCommand(memoryStream, file.FileName, prompt);
+        var command = new ExtractFieldsFromPdfCommand(memoryStream, request.File.FileName, request.Prompt);
         var result = await _mediator.Send(command, cancellationToken);
 
         var responseDto = DocumentExtractionResponseDto.FromDomain(result);
@@ -58,7 +59,7 @@ public class DocumentsController : ControllerBase
         }
 
         var statusCode = StatusCodes.Status422UnprocessableEntity;
-        _logger.LogWarning("Document extraction failed for {FileName}: {Error}", file.FileName, result.ErrorMessage);
+        _logger.LogWarning("Document extraction failed for {FileName}: {Error}", request.File.FileName, result.ErrorMessage);
         return StatusCode(statusCode, responseDto);
     }
 }
