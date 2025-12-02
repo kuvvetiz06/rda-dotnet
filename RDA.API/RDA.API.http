@@ -1,0 +1,6 @@
+@RDA.API_HostAddress = http://localhost:5038
+
+GET {{RDA.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

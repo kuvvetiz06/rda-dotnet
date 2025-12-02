@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="RDA.API/RDA.API.csproj" Id="3ccdc40c-ea2c-468c-af2e-58889ab750a8" />
+  <Project Path="RDA.Application/RDA.Application.csproj" Id="079dd62d-ca54-4b3a-93c9-93c16b1cd502" />
+  <Project Path="RDA.Domain/RDA.Domain.csproj" Id="7b58db10-1833-4cc8-94d9-8f428d86b842" />
+  <Project Path="RDA.Infrastructure/RDA.Infrastructure.csproj" Id="e9d94995-e10c-44fd-984a-9db3d7b49dab" />
+</Solution>
