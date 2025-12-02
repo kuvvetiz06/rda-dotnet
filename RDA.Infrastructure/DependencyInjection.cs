@@ -11,6 +11,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<TesseractOptions>(configuration.GetSection("Tesseract"));
         services.AddScoped<IOcrService, TesseractOcrService>();
 
         services.AddHttpClient<ILlmExtractionService, OllamaLlmExtractionService>((sp, client) =>
